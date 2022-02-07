@@ -104,7 +104,22 @@ type config =
   ; include_promotions : bool
   ; progress : Progress.t
   ; log : type_:MessageType.t -> message:string -> unit Fiber.t
+  ; registration :
+         [ `Add of RegistrationParams.t | `Remove of UnregistrationParams.t ]
+         list
+      -> unit Fiber.t
   }
+
+let unregistration_of_promotion d =
+  let unregisterations =
+    let in_source = Drpc.Diagnostic.Promotion.in_source d in
+    let make method_ =
+      let id = "ocamllsp-promote/" ^ method_ ^ "/" ^ in_source in
+      Unregistration.create ~id ~method_
+    in
+    [ make "textDocument/didOpen"; make "textDocument/didClose" ]
+  in
+  UnregistrationParams.create ~unregisterations
 
 module Instance : sig
   type t
@@ -131,7 +146,9 @@ end = struct
     ; diagnostics_id : Diagnostics.Dune.t
     ; id : Id.t
     ; mutable client : Client.t option
-    ; mutable promotions : Drpc.Diagnostic.Promotion.t String.Map.t
+    ; mutable promotions :
+        (* TODO we need to clean these up in the finalizer *)
+        Drpc.Diagnostic.Promotion.t String.Map.t
     }
 
   type state =
@@ -233,43 +250,96 @@ end = struct
               let+ () = Progress.build_progress progress p in
               Some ()))
 
-  let diagnostic_loop client running dune_diagnostic_id diagnostics
-      ~include_promotions =
+  let registration_of_promotion (d : Drpc.Diagnostic.Promotion.t) =
+    let registrations =
+      let in_source = Drpc.Diagnostic.Promotion.in_source d in
+      let make method_ =
+        let id = "ocamllsp-promote/" ^ method_ ^ "/" ^ in_source in
+        (* TODO not nice to copy paste *)
+        let registerOptions =
+          let documentSelector =
+            [ DocumentFilter.create ~pattern:in_source () ]
+          in
+          TextDocumentRegistrationOptions.create ~documentSelector ()
+          |> TextDocumentRegistrationOptions.yojson_of_t
+        in
+        Registration.create ~id ~method_ ~registerOptions ()
+      in
+      [ make "textDocument/didOpen"; make "textDocument/didClose" ]
+    in
+    RegistrationParams.create ~registrations
+
+  let fold_promotions promotions diagonstic ~f =
+    let promotions, requests =
+      Drpc.Diagnostic.promotion diagonstic
+      |> List.fold_left ~init:(promotions, []) ~f:(fun (ps, acc) promotion ->
+             let src = Drpc.Diagnostic.Promotion.in_source promotion in
+             match f promotion (String.Map.find promotions src) with
+             | None -> (ps, acc)
+             | Some (update, requests) ->
+               (* XXX not very efficient *)
+               ( String.Map.update promotions src ~f:(fun _ -> update)
+               , requests :: acc ))
+    in
+    (promotions, List.flatten requests)
+
+  let add_promotions promotions diagnostic =
+    fold_promotions promotions diagnostic ~f:(fun promotion status ->
+        match status with
+        | None -> Some (Some promotion, [ registration_of_promotion promotion ])
+        | Some _ ->
+          (* TODO: ideally, we should update with the new promotion, but then we
+             need to store the actual registration ID *)
+          None)
+
+  let remove_promotions running promotions =
+    fold_promotions running promotions ~f:(fun promotion status ->
+        match status with
+        | None ->
+          Log.log ~section:"warning" (fun () ->
+              Log.msg "removing non existant promotion"
+                [ ( "promotion"
+                  , `String (Drpc.Diagnostic.Promotion.in_source promotion) )
+                ]);
+          None
+        | Some _ -> Some (None, [ unregistration_of_promotion promotion ]))
+
+  let diagnostic_loop client config (running : running) dune_diagnostic_id
+      diagnostics ~include_promotions =
     let* res = Client.poll client Drpc.Sub.diagnostic in
     let send_diagnostics evs =
-      List.iter evs ~f:(fun (ev : Drpc.Diagnostic.Event.t) ->
-          let id =
-            Drpc.Diagnostic.id
-              (match ev with
-              | Add x -> x
-              | Remove x -> x)
-          in
-          let fold_promotions d ~f =
-            let promotions = Drpc.Diagnostic.promotion d in
-            List.fold_left promotions ~init:running.promotions
-              ~f:(fun acc promotion ->
-                let in_source = Drpc.Diagnostic.Promotion.in_source promotion in
-                f acc in_source promotion)
-          in
-          match ev with
-          | Remove d ->
-            running.promotions <-
-              fold_promotions d ~f:(fun acc path _promotion ->
-                  String.Map.remove acc path);
-            Diagnostics.remove diagnostics (`Dune (dune_diagnostic_id, id))
-          | Add d ->
-            running.promotions <- fold_promotions d ~f:String.Map.set;
-            let uri : Uri.t =
-              match Drpc.Diagnostic.loc d with
-              | None -> Diagnostics.workspace_root diagnostics
-              | Some loc ->
-                let { Lexing.pos_fname; _ } = Drpc.Loc.start loc in
-                Uri.of_path pos_fname
+      let promotions, requests =
+        List.fold_left evs ~init:(running.promotions, [])
+          ~f:(fun (promotions, acc) (ev : Drpc.Diagnostic.Event.t) ->
+            let id =
+              Drpc.Diagnostic.id
+                (match ev with
+                | Add x -> x
+                | Remove x -> x)
             in
-            Diagnostics.set diagnostics
-              (`Dune
-                (dune_diagnostic_id, id, uri, lsp_of_dune ~include_promotions d)));
-      Diagnostics.send diagnostics
+            match ev with
+            | Remove d ->
+              let promotions, requests = remove_promotions promotions d in
+              Diagnostics.remove diagnostics (`Dune (dune_diagnostic_id, id));
+              (promotions, List.map requests ~f:(fun r -> `Remove r) :: acc)
+            | Add d ->
+              let promotions, requests = add_promotions promotions d in
+              let uri : Uri.t =
+                match Drpc.Diagnostic.loc d with
+                | None -> Diagnostics.workspace_root diagnostics
+                | Some loc ->
+                  let { Lexing.pos_fname; _ } = Drpc.Loc.start loc in
+                  Uri.of_path pos_fname
+              in
+              Diagnostics.set diagnostics
+                (`Dune
+                  ( dune_diagnostic_id
+                  , id
+                  , uri
+                  , lsp_of_dune ~include_promotions d ));
+              (promotions, List.map requests ~f:(fun r -> `Add r) :: acc))
+      in
+      (promotions, List.flatten requests)
     in
     match res with
     | Error v -> raise (Drpc.Version_error.E v)
@@ -279,7 +349,10 @@ end = struct
           match res with
           | None -> Fiber.return None
           | Some p ->
-            let+ () = send_diagnostics p `All in
+            let promotions, requests = send_diagnostics p in
+            running.promotions <- promotions;
+            let* () = Diagnostics.send diagnostics `All in
+            let+ () = config.registration requests in
             Some ())
 
   let stop t =
@@ -343,7 +416,14 @@ end = struct
         }
       in
       t.state <- Running running;
-      let { progress; diagnostics; include_promotions; log = _ } = config in
+      let { progress
+          ; diagnostics
+          ; include_promotions
+          ; log = _
+          ; registration = _
+          } =
+        config
+      in
       let* () =
         Fiber.all_concurrently_unit
           [ (let* () = Chan.run chan in
@@ -383,7 +463,7 @@ end = struct
                  in
                  let progress = progress_loop client progress in
                  let diagnostics =
-                   diagnostic_loop client running running.diagnostics_id
+                   diagnostic_loop client config running running.diagnostics_id
                      diagnostics ~include_promotions
                  in
                  Fiber.all_concurrently_unit
@@ -416,7 +496,6 @@ end = struct
     | Finished
     | Running _ ->
       assert false
-  (* TODO wait for initialization *)
 end
 
 module Dune_map = Map.Make (Registry.Dune)
@@ -486,6 +565,18 @@ let uri_dune_overlap =
     in
     loop (explode_path dune_root) (explode_path path)
 
+let make_finalizer active (instance : Instance.t) =
+  Lazy_fiber.create (fun () ->
+      active.instances <-
+        String.Map.remove active.instances
+          (Registry.Dune.root (Instance.source instance));
+      let to_unregister =
+        Instance.promotions instance
+        |> String.Map.to_list_map ~f:(fun _ promotion ->
+               `Remove (unregistration_of_promotion promotion))
+      in
+      active.config.registration to_unregister)
+
 let poll active =
   (* a single workspaces value for one iteration of the loop *)
   let workspaces = active.workspaces in
@@ -532,14 +623,9 @@ let poll active =
           (* XXX fragile. what if a server was killed and didn't cleanup *)
           String.Map.add_exn acc (Registry.Dune.root source) instance);
     let create to_create =
-      Fiber.parallel_iter to_create ~f:(fun instance ->
-          let cleanup =
-            lazy
-              (active.instances <-
-                String.Map.remove active.instances
-                  (Registry.Dune.root (Instance.source instance)))
-          in
-          let+ (_ : (unit, unit) result) =
+      Fiber.parallel_iter to_create ~f:(fun (instance : Instance.t) ->
+          let cleanup = make_finalizer active instance in
+          let* (_ : (unit, unit) result) =
             Fiber.map_reduce_errors
               (module Monoid.Unit)
               ~on_error:(fun exn ->
@@ -548,11 +634,11 @@ let poll active =
                     (Registry.Dune.root (Instance.source instance))
                     Exn_with_backtrace.pp_uncaught exn
                 in
-                let+ () = active.config.log ~type_:Error ~message in
-                Lazy.force cleanup)
+                let* () = active.config.log ~type_:Error ~message in
+                Lazy_fiber.force cleanup)
               (fun () -> Instance.run instance)
           in
-          Lazy.force cleanup)
+          Lazy_fiber.force cleanup)
     in
     let send f x =
       if x = [] then
@@ -585,7 +671,7 @@ let stop (t : t) =
             |> Fiber.parallel_iter ~f:Instance.stop))
 
 let create workspaces (client_capabilities : ClientCapabilities.t) diagnostics
-    progress ~log =
+    progress ~log ~registration =
   let config =
     let include_promotions =
       match client_capabilities.experimental with
@@ -595,7 +681,7 @@ let create workspaces (client_capabilities : ClientCapabilities.t) diagnostics
         | _ -> false)
       | _ -> false
     in
-    { diagnostics; progress; include_promotions; log }
+    { diagnostics; progress; include_promotions; log; registration }
   in
   let registry =
     Registry.create (Registry.Config.create (Xdg.create ~env:Sys.getenv_opt ()))
@@ -614,9 +700,10 @@ let enabled = false
 let create_disabled () = ref Closed
 
 let create workspaces (client_capabilities : ClientCapabilities.t) diagnostics
-    progress ~log =
+    progress ~log ~registration =
   if enabled then
     create workspaces client_capabilities diagnostics progress ~log
+      ~registration
   else
     create_disabled ()
 

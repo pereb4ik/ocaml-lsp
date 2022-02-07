@@ -18,6 +18,10 @@ val create :
   -> Diagnostics.t
   -> Progress.t
   -> log:(type_:MessageType.t -> message:string -> unit Fiber.t)
+  -> registration:
+       (   [ `Add of RegistrationParams.t | `Remove of UnregistrationParams.t ]
+           list
+        -> unit Fiber.t)
   -> t
 
 val update_workspaces : t -> Workspaces.t -> unit

@@ -156,6 +156,8 @@ include struct
   module TextDocumentSyncClientCapabilities = TextDocumentSyncClientCapabilities
   module TextEdit = TextEdit
   module TraceValue = TraceValue
+  module Unregistration = Unregistration
+  module UnregistrationParams = UnregistrationParams
   module VersionedTextDocumentIdentifier = VersionedTextDocumentIdentifier
   module WorkDoneProgressBegin = WorkDoneProgressBegin
   module WorkDoneProgressCreateParams = WorkDoneProgressCreateParams

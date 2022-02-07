@@ -272,7 +272,14 @@ let on_initialize server (ip : InitializeParams.t) =
     in
     let dune =
       Dune.create workspaces ip.capabilities state.diagnostics progress
-        ~log:(State.log_msg server)
+        ~log:(State.log_msg server) ~registration:(fun requests ->
+          Fiber.parallel_iter requests ~f:(fun req ->
+              let req =
+                match req with
+                | `Add r -> Server_request.ClientRegisterCapability r
+                | `Remove r -> Server_request.ClientUnregisterCapability r
+              in
+              Server.request server req))
     in
     let+ () = Fiber.Pool.task state.detached ~f:(fun () -> Dune.run dune) in
     dune
