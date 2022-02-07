@@ -260,10 +260,10 @@ end = struct
           let documentSelector =
             [ DocumentFilter.create ~pattern:in_source () ]
           in
-          Lsp.Types.CodeActionRegistrationOptions.create ~documentSelector
+          CodeActionRegistrationOptions.create ~documentSelector
             ~codeActionKinds:[ CodeActionKind.Other "Promote" ]
             ()
-          |> Lsp.Types.CodeActionRegistrationOptions.yojson_of_t
+          |> CodeActionRegistrationOptions.yojson_of_t
         in
         Registration.create ~id ~method_ ~registerOptions ()
       in

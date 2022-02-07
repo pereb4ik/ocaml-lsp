@@ -87,6 +87,7 @@ include struct
   module CodeActionOptions = CodeActionOptions
   module CodeActionParams = CodeActionParams
   module CodeActionResult = CodeActionResult
+  module CodeActionRegistrationOptions = CodeActionRegistrationOptions
   module CodeLens = CodeLens
   module CodeLensOptions = CodeLensOptions
   module CodeLensParams = CodeLensParams
