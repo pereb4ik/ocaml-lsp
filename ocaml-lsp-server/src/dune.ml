@@ -278,8 +278,7 @@ end = struct
              | None -> (ps, acc)
              | Some (update, requests) ->
                (* XXX not very efficient *)
-               ( String.Map.update promotions src ~f:(fun _ -> update)
-               , requests :: acc ))
+               (String.Map.update ps src ~f:(fun _ -> update), requests :: acc))
     in
     (promotions, List.flatten requests)
 
