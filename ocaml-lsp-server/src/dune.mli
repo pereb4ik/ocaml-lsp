@@ -32,6 +32,6 @@ val commands : string list
 
 val on_command : t -> ExecuteCommandParams.t -> Json.t Fiber.t
 
-val code_actions : t -> Document.t -> CodeAction.t list
+val code_actions : t -> Uri.t -> CodeAction.t list
 
 val for_doc : t -> Document.t -> Instance.t list

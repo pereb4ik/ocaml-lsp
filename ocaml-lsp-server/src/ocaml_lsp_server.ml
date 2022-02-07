@@ -398,7 +398,8 @@ let code_action (state : State.t) (params : CodeActionParams.t) =
   in
   let code_action_results = List.filter_opt code_action_results in
   let code_action_results =
-    code_action_results @ Dune.code_actions (State.dune state) doc
+    code_action_results
+    @ Dune.code_actions (State.dune state) (Document.uri doc)
   in
   match code_action_results with
   | [] -> None

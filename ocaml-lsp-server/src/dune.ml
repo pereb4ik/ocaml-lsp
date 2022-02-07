@@ -803,11 +803,11 @@ end
 
 let commands = [ Promote.name ]
 
-let code_actions (t : t) (doc : Document.t) =
+let code_actions (t : t) (uri : Uri.t) =
   match !t with
   | Closed -> []
   | Active active ->
-    let path = Document.uri doc |> Uri.to_path in
+    let path = Uri.to_path uri in
     String.Map.fold active.instances ~init:[] ~f:(fun dune acc ->
         let promotions = Instance.promotions dune in
         match String.Map.find promotions path with
