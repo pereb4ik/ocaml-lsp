@@ -809,10 +809,8 @@ let ocaml_on_request :
       , state )
   in
   match req with
-  | Initialize ip ->
-    let+ res, state = on_initialize rpc ip in
-    (res, state)
-  | Shutdown -> now ()
+  | Initialize _ -> assert false
+  | Shutdown -> assert false
   | DebugTextDocumentGet { textDocument = { uri }; position = _ } -> (
     match Document_store.get_opt store uri with
     | None -> now None
@@ -922,6 +920,20 @@ let ocaml_on_request :
     Jsonrpc.Response.Error.raise
       (make_error ~code:InvalidRequest ~message:"Got unknown request" ())
 
+let non_ocaml_on_request (type resp) server (req : resp Client_request.t) :
+    (resp Reply.t * State.t) Fiber.t =
+  match req with
+  | CodeAction params ->
+    let state : State.t = Server.state server in
+    let actions =
+      Dune.code_actions (State.dune state) params.textDocument.uri
+      |> List.map ~f:(fun a -> `CodeAction a)
+    in
+    Fiber.return (Reply.now (Some actions), state)
+  | Initialize _ -> assert false
+  | Shutdown -> assert false
+  | _ -> not_supported ()
+
 let on_request :
     type resp.
        State.t Server.t
@@ -960,10 +972,16 @@ let on_request :
               let* res = handler ~params state in
               send res)
         , state ))
+  | Initialize ip ->
+    let+ res, state = on_initialize server ip in
+    (res, state)
+  | Shutdown -> Fiber.return (Reply.now (), state)
   | _ -> (
     match syntax with
-    | Some (Ocamllex | Menhir) -> not_supported ()
-    | _ -> ocaml_on_request server req)
+    | None
+    | Some (Ocamllex | Menhir | Cram | Dune) ->
+      non_ocaml_on_request server req
+    | Some (Ocaml | Reason) -> ocaml_on_request server req)
 
 let on_notification server (notification : Client_notification.t) :
     State.t Fiber.t =
