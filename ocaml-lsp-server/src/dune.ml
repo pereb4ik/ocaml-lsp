@@ -452,7 +452,8 @@ end = struct
                config.log ~type_:Info ~message
              in
              Client.connect chan init ~f:(fun client ->
-                 t.state <- Running { running with client = Some client };
+                 running.client <- Some client;
+                 t.state <- Running running;
                  let* () =
                    let message =
                      sprintf "client %d: connected to dune at %s"
