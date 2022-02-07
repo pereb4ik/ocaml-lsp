@@ -114,10 +114,10 @@ let unregistration_of_promotion d =
   let unregisterations =
     let in_source = Drpc.Diagnostic.Promotion.in_source d in
     let make method_ =
-      let id = "ocamllsp-promote/" ^ method_ ^ "/" ^ in_source in
+      let id = "ocamllsp-promote-action/" ^ in_source in
       Unregistration.create ~id ~method_
     in
-    [ make "textDocument/didOpen"; make "textDocument/didClose" ]
+    [ make "textDocument/codeAction" ]
   in
   UnregistrationParams.create ~unregisterations
 
@@ -253,19 +253,21 @@ end = struct
   let registration_of_promotion (d : Drpc.Diagnostic.Promotion.t) =
     let registrations =
       let in_source = Drpc.Diagnostic.Promotion.in_source d in
-      let make method_ =
-        let id = "ocamllsp-promote/" ^ method_ ^ "/" ^ in_source in
-        (* TODO not nice to copy paste *)
+      let code_action =
+        let id = "ocamllsp-promote-action/" ^ in_source in
+        let method_ = "textDocument/codeAction" in
         let registerOptions =
           let documentSelector =
             [ DocumentFilter.create ~pattern:in_source () ]
           in
-          TextDocumentRegistrationOptions.create ~documentSelector ()
-          |> TextDocumentRegistrationOptions.yojson_of_t
+          Lsp.Types.CodeActionRegistrationOptions.create ~documentSelector
+            ~codeActionKinds:[ CodeActionKind.Other "Promote" ]
+            ()
+          |> Lsp.Types.CodeActionRegistrationOptions.yojson_of_t
         in
         Registration.create ~id ~method_ ~registerOptions ()
       in
-      [ make "textDocument/didOpen"; make "textDocument/didClose" ]
+      [ code_action ]
     in
     RegistrationParams.create ~registrations
 
