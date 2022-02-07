@@ -5,7 +5,7 @@
 open Import
 
 type error =
-  | Unsupported_syntax of Document.Syntax.t
+  | Unsupported_syntax of Document.Syntax.t option
   | Missing_binary of { binary : string }
   | Unexpected_result of { message : string }
   | Unknown_extension of Uri.t

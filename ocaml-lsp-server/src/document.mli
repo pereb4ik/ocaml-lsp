@@ -26,7 +26,7 @@ val is_merlin : t -> bool
 
 val kind : t -> Kind.t
 
-val syntax : t -> Syntax.t
+val syntax : t -> Syntax.t option
 
 val make :
      Lev_fiber.Timer.Wheel.t

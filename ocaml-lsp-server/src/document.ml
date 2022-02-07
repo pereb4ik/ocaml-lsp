@@ -76,13 +76,8 @@ module Syntax = struct
     in
     fun s ->
       match of_fname_res s with
-      | Ok x -> x
-      | Error ext ->
-        Jsonrpc.Response.Error.raise
-          (Jsonrpc.Response.Error.make ~code:InvalidRequest
-             ~message:(Printf.sprintf "unsupported file extension")
-             ~data:(`Assoc [ ("extension", `String ext) ])
-             ())
+      | Ok x -> Some x
+      | Error _ -> None
 
   let to_language_id x =
     List.find_map all ~f:(fun (k, v) -> Option.some_if (v = x) k)
@@ -95,12 +90,12 @@ module Syntax = struct
 
   let of_text_document (td : Text_document.t) =
     match List.assoc all (Text_document.languageId td) with
-    | Some s -> s
+    | Some _ as s -> s
     | None -> Text_document.documentUri td |> Uri.to_path |> of_fname
 end
 
 type t =
-  | Other of Text_document.t * Syntax.t
+  | Other of Text_document.t * Syntax.t option
   | Merlin of
       { tdoc : Text_document.t
       ; pipeline : Mpipeline.t Lazy_fiber.t
@@ -125,7 +120,7 @@ let kind = function
   | Other _ -> Code_error.raise "non merlin document has no kind" []
 
 let syntax = function
-  | Merlin m -> m.syntax
+  | Merlin m -> Some m.syntax
   | Other (_, syntax) -> syntax
 
 let timer = function
@@ -206,13 +201,10 @@ let make wheel config ~merlin_thread (doc : DidOpenTextDocumentParams.t) =
   let tdoc = Text_document.make doc in
   let syntax = Syntax.of_text_document tdoc in
   match syntax with
-  | Ocaml
-  | Reason ->
+  | Some ((Ocaml | Reason) as syntax) ->
     make_merlin wheel config ~merlin_thread tdoc syntax
-  | Ocamllex
-  | Menhir
-  | Cram
-  | Dune ->
+  | Some (Ocamllex | Menhir | Cram | Dune)
+  | None ->
     Fiber.return (Other (tdoc, syntax))
 
 let update_text ?version t changes =
@@ -286,19 +278,19 @@ let get_impl_intf_counterparts uri =
   in
   let exts_to_switch_to =
     match Syntax.of_fname fname with
-    | Dune
-    | Cram ->
+    | None
+    | Some (Dune | Cram) ->
       []
-    | Ocaml -> (
+    | Some Ocaml -> (
       match Kind.of_fname fname with
       | Intf -> [ ml; mly; mll; eliom; re ]
       | Impl -> [ mli; mly; mll; eliomi; rei ])
-    | Reason -> (
+    | Some Reason -> (
       match Kind.of_fname fname with
       | Intf -> [ re; ml ]
       | Impl -> [ rei; mli ])
-    | Ocamllex -> [ mli; rei ]
-    | Menhir -> [ mli; rei ]
+    | Some Ocamllex -> [ mli; rei ]
+    | Some Menhir -> [ mli; rei ]
   in
   let fpath_w_ext ext = Filename.remove_extension fpath ^ "." ^ ext in
   let find_switch exts =

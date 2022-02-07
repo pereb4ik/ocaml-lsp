@@ -168,12 +168,10 @@ let set_diagnostics rpc doc =
     ()
   in
   match Document.syntax doc with
-  | Dune
-  | Cram
-  | Menhir
-  | Ocamllex ->
+  | Some (Dune | Cram | Menhir | Ocamllex)
+  | None ->
     Fiber.return ()
-  | Reason when Option.is_none (Bin.which ocamlmerlin_reason) ->
+  | Some Reason when Option.is_none (Bin.which ocamlmerlin_reason) ->
     let no_reason_merlin =
       let message =
         sprintf "Could not detect %s. Please install reason" ocamlmerlin_reason
@@ -182,8 +180,8 @@ let set_diagnostics rpc doc =
     in
     Diagnostics.set state.diagnostics (`Merlin (uri, [ no_reason_merlin ]));
     async (fun () -> Diagnostics.send state.diagnostics (`One uri))
-  | Reason
-  | Ocaml ->
+  | Some Reason
+  | Some Ocaml ->
     let send () =
       let* diagnostics =
         let command =
@@ -937,7 +935,7 @@ let on_request :
       Client_request.text_document req (fun ~meth:_ ~params:_ -> None)
     in
     let uri = td.uri in
-    let+ doc = Document_store.get_opt store uri in
+    let* doc = Document_store.get_opt store uri in
     Document.syntax doc
   in
   match req with
