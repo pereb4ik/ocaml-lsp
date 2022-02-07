@@ -7,11 +7,7 @@ let format_contents ~syntax ~markdown ~typ ~doc =
   `MarkupContent
     (if markdown then
       let value =
-        let markdown_name =
-          match syntax with
-          | None -> ""
-          | Some syntax -> Document.Syntax.markdown_name syntax
-        in
+        let markdown_name = Document.Syntax.markdown_name syntax in
         match doc with
         | None -> sprintf "```%s\n%s\n```" markdown_name typ
         | Some s ->

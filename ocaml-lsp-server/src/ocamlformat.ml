@@ -45,7 +45,7 @@ let run_command prog stdin_value args : command_result Fiber.t =
   { stdout; stderr; status }
 
 type error =
-  | Unsupported_syntax of Document.Syntax.t option
+  | Unsupported_syntax of Document.Syntax.t
   | Missing_binary of { binary : string }
   | Unexpected_result of { message : string }
   | Unknown_extension of Uri.t
@@ -53,9 +53,7 @@ type error =
 let message = function
   | Unsupported_syntax syntax ->
     sprintf "formatting %s files is not supported"
-      (match syntax with
-      | None -> "<unknown>"
-      | Some syntax -> Document.Syntax.human_name syntax)
+      (Document.Syntax.human_name syntax)
   | Missing_binary { binary } ->
     sprintf
       "Unable to find %s binary. You need to install %s manually to use the \
@@ -92,10 +90,9 @@ let binary t =
 
 let formatter doc =
   match Document.syntax doc with
-  | (Some (Dune | Cram | Ocamllex | Menhir) | None) as s ->
-    Error (Unsupported_syntax s)
-  | Some Ocaml -> Ok (Ocaml (Document.uri doc))
-  | Some Reason -> Ok (Reason (Document.kind doc))
+  | (Dune | Cram | Ocamllex | Menhir) as s -> Error (Unsupported_syntax s)
+  | Ocaml -> Ok (Ocaml (Document.uri doc))
+  | Reason -> Ok (Reason (Document.kind doc))
 
 let exec bin args stdin =
   let refmt = Fpath.to_string bin in
