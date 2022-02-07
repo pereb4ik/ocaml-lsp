@@ -303,8 +303,7 @@ end = struct
           None
         | Some _ -> Some (None, [ unregistration_of_promotion promotion ]))
 
-  let diagnostic_loop client config (running : running) dune_diagnostic_id
-      diagnostics ~include_promotions =
+  let diagnostic_loop client config (running : running) diagnostics =
     let* res = Client.poll client Drpc.Sub.diagnostic in
     let send_diagnostics evs =
       let promotions, requests =
@@ -319,7 +318,8 @@ end = struct
             match ev with
             | Remove d ->
               let promotions, requests = remove_promotions promotions d in
-              Diagnostics.remove diagnostics (`Dune (dune_diagnostic_id, id));
+              Diagnostics.remove diagnostics
+                (`Dune (running.diagnostics_id, id));
               (promotions, List.map requests ~f:(fun r -> `Remove r) :: acc)
             | Add d ->
               let promotions, requests = add_promotions promotions d in
@@ -332,10 +332,11 @@ end = struct
               in
               Diagnostics.set diagnostics
                 (`Dune
-                  ( dune_diagnostic_id
+                  ( running.diagnostics_id
                   , id
                   , uri
-                  , lsp_of_dune ~include_promotions d ));
+                  , lsp_of_dune ~include_promotions:config.include_promotions d
+                  ));
               (promotions, List.map requests ~f:(fun r -> `Add r) :: acc))
       in
       (promotions, List.flatten requests)
@@ -417,7 +418,7 @@ end = struct
       t.state <- Running running;
       let { progress
           ; diagnostics
-          ; include_promotions
+          ; include_promotions = _
           ; log = _
           ; registration = _
           } =
@@ -463,8 +464,7 @@ end = struct
                  in
                  let progress = progress_loop client progress in
                  let diagnostics =
-                   diagnostic_loop client config running running.diagnostics_id
-                     diagnostics ~include_promotions
+                   diagnostic_loop client config running diagnostics
                  in
                  Fiber.all_concurrently_unit
                    [ progress; diagnostics; Fiber.Ivar.read finish ]))
