@@ -813,11 +813,8 @@ let ocaml_on_request :
   match req with
   | Initialize _ -> assert false
   | Shutdown -> assert false
-  | DebugTextDocumentGet { textDocument = { uri }; position = _ } -> (
-    match Document_store.get_opt store uri with
-    | None -> now None
-    | Some doc -> now (Some (Msource.text (Document.source doc))))
-  | DebugEcho params -> now params
+  | DebugTextDocumentGet _ -> assert false
+  | DebugEcho _ -> assert false
   | TextDocumentColor _ -> now []
   | TextDocumentColorPresentation _ -> now []
   | TextDocumentHover req ->
@@ -826,8 +823,7 @@ let ocaml_on_request :
   | TextDocumentCodeLensResolve codeLens -> now codeLens
   | TextDocumentCodeLens req -> later text_document_lens req
   | TextDocumentHighlight req -> later highlight req
-  | WorkspaceSymbol req ->
-    later (fun state () -> workspace_symbol rpc state req) ()
+  | WorkspaceSymbol _ -> assert false
   | DocumentSymbol { textDocument = { uri }; _ } -> later document_symbol uri
   | TextDocumentDeclaration { textDocument = { uri }; position } ->
     later
@@ -883,28 +879,8 @@ let ocaml_on_request :
   | TextDocumentLink _ -> now None
   | WillSaveWaitUntilTextDocument _ -> now None
   | CodeAction params -> later code_action params
-  | CodeActionResolve ca -> now ca
-  | CompletionItemResolve ci ->
-    later
-      (fun state () ->
-        let markdown =
-          ClientCapabilities.markdown_support (State.client_capabilities state)
-            ~field:(fun d ->
-              let open Option.O in
-              let+ completion = d.completion in
-              let* completion_item = completion.completionItem in
-              completion_item.documentationFormat)
-        in
-        let resolve = Compl.Resolve.of_completion_item ci in
-        match resolve with
-        | None -> Fiber.return ci
-        | Some resolve ->
-          let doc =
-            let uri = Compl.Resolve.uri resolve in
-            Document_store.get state.store uri
-          in
-          Compl.resolve doc ci resolve Document.doc_comment ~markdown)
-      ()
+  | CodeActionResolve _ -> assert false
+  | CompletionItemResolve _ -> assert false
   | TextDocumentFormatting { textDocument = { uri }; options = _; _ } ->
     later
       (fun _ () ->
@@ -953,6 +929,14 @@ let on_request :
     let+ doc = Document_store.get_opt store uri in
     Document.syntax doc
   in
+  let now res = Fiber.return (Reply.now res, state) in
+  let later f req =
+    Fiber.return
+      ( Reply.later (fun k ->
+            let* resp = f state req in
+            k resp)
+      , state )
+  in
   match req with
   | Client_request.UnknownRequest { meth; params } -> (
     match
@@ -977,7 +961,36 @@ let on_request :
   | Initialize ip ->
     let+ res, state = on_initialize server ip in
     (res, state)
+  | DebugTextDocumentGet { textDocument = { uri }; position = _ } -> (
+    match Document_store.get_opt store uri with
+    | None -> now None
+    | Some doc -> now (Some (Msource.text (Document.source doc))))
+  | DebugEcho params -> now params
   | Shutdown -> Fiber.return (Reply.now (), state)
+  | WorkspaceSymbol req ->
+    later (fun state () -> workspace_symbol server state req) ()
+  | CodeActionResolve ca -> now ca
+  | CompletionItemResolve ci ->
+    later
+      (fun state () ->
+        let markdown =
+          ClientCapabilities.markdown_support (State.client_capabilities state)
+            ~field:(fun d ->
+              let open Option.O in
+              let+ completion = d.completion in
+              let* completion_item = completion.completionItem in
+              completion_item.documentationFormat)
+        in
+        let resolve = Compl.Resolve.of_completion_item ci in
+        match resolve with
+        | None -> Fiber.return ci
+        | Some resolve ->
+          let doc =
+            let uri = Compl.Resolve.uri resolve in
+            Document_store.get state.store uri
+          in
+          Compl.resolve doc ci resolve Document.doc_comment ~markdown)
+      ()
   | _ -> (
     match syntax with
     | None
