@@ -106,7 +106,7 @@ let f (x : t) = x
               Object {
                 "inRange": Object {
                   "end": Object {
-                    "character": 54,
+                    "character": 52,
                     "line": 2,
                   },
                   "start": Object {
