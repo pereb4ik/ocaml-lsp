@@ -23,3 +23,7 @@ ignore=dirty
 [submodule "submodules/lev"]
 	path = submodules/lev
 	url = https://github.com/rgrinberg/lev.git
+[submodule "ocaml-lsp-server/vendor/merlin"]
+	path = ocaml-lsp-server/vendor/merlin
+	url = https://github.com/pereb4ik/merlin.git
+	branch = lsp
