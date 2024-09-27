@@ -19,6 +19,11 @@ let initialize_info : InitializeResult.t =
            ; Action_refactor_open.unqualify
            ; Action_refactor_open.qualify
            ; Action_add_rec.t
+           ; Action_replace_struct.t
+           ; Action_replace_switch.t
+           ; Action_fix_record.t
+           ; Action_replace_module.t
+           ; Action_replace_match.t
            ]
       |> List.sort_uniq ~compare:Poly.compare
     in
@@ -386,6 +391,11 @@ let code_action (state : State.t) (params : CodeActionParams.t) =
       ; Action_add_rec.t
       ; Action_mark_remove_unused.mark
       ; Action_mark_remove_unused.remove
+      ; Action_replace_struct.t
+      ; Action_replace_switch.t
+      ; Action_fix_record.t
+      ; Action_replace_module.t
+      ; Action_replace_match.t
       ]
   in
   let code_action_results = List.filter_opt code_action_results in
